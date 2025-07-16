@@ -6,12 +6,13 @@
 #include "gui.h"
 
 static const char* const ITEMS[] = {
-    "Oscilloscope", "INA226", "Snake game"
+    "Oscilloscope", "Voltage", "Snake game", "INA226"
 };
 
 extern void oscilloscope(void);
-extern void power(void);
+extern void voltage(void);
 extern void snake(void);
+extern void power(void);
 
 int main(void) {
     TWI_Init(400000);
@@ -30,10 +31,13 @@ int main(void) {
                 oscilloscope();
                 break;
             case 1:
-                power();
+                voltage();
                 break;
             case 2:
                 snake();
+                break;
+            case 3:
+                power();
                 break;
         }
     }

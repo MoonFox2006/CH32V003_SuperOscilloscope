@@ -3,79 +3,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ch32v00x.h>
-#ifdef USE_UART
-#ifdef USE_SPL
-#include <ch32v00x_rcc.h>
-#include <ch32v00x_gpio.h>
-#include <ch32v00x_usart.h>
-#endif
-#endif
 #include "utils.h"
 #include "twi.h"
 #include "ssd1306.h"
+#include "encoder.h"
 #include "ina226.h"
 #include "strutils.h"
-
 #ifdef USE_UART
-#define UART_SPEED  115200
-
-static void uartInit(void) {
-#ifdef USE_SPL
-    GPIO_InitTypeDef GPIO_InitStructure;
-    USART_InitTypeDef USART_InitStructure;
-
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOD | RCC_APB2Periph_USART1, ENABLE);
-
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_30MHz;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_Init(GPIOD, &GPIO_InitStructure);
-
-    USART_InitStructure.USART_BaudRate = UART_SPEED;
-    USART_InitStructure.USART_WordLength = USART_WordLength_8b;
-    USART_InitStructure.USART_StopBits = USART_StopBits_1;
-    USART_InitStructure.USART_Parity = USART_Parity_No;
-    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
-    USART_InitStructure.USART_Mode = USART_Mode_Tx;
-
-    USART_Init(USART1, &USART_InitStructure);
-    USART_Cmd(USART1, ENABLE);
-#else
-    uint32_t tmp, brr;
-
-    RCC->APB2PCENR |= (RCC_USART1EN | RCC_IOPDEN);
-
-    /* USART1 TX-->D5 */
-    GPIOD->CFGLR &= ~((uint32_t)0x0F << (4 * 5));
-    GPIOD->CFGLR |= ((uint32_t)0x0B << (4 * 5));
-
-    tmp = (25 * FCPU) / (4 * UART_SPEED);
-    brr = (tmp / 100) << 4;
-    tmp -= 100 * (brr >> 4);
-    brr |= (((tmp * 16) + 50) / 100) & 0x0F;
-
-    USART1->BRR = brr;
-    USART1->CTLR2 = 0;
-    USART1->CTLR3 = 0;
-    USART1->CTLR1 = USART_CTLR1_UE | USART_CTLR1_TE;
-#endif
-}
-
-static void uartWrite(char c) {
-#ifdef USE_SPL
-    while (! USART_GetFlagStatus(USART1, USART_FLAG_TXE)) {}
-    USART_SendData(USART1, c);
-#else
-    while (! (USART1->STATR & USART_STATR_TXE)) {}
-    USART1->DATAR = c;
-#endif
-}
-
-static void uartPrint(const char *str) {
-    while (*str) {
-        uartWrite(*str++);
-    }
-}
+#include "uart.h"
 #endif
 
 static void normalizeU32(char *str, uint32_t value, const char *suffix) {
@@ -143,6 +78,13 @@ void power(void) {
 #endif
 
     while (1) {
+        if (Encoder_Button()) { // Clear totals
+            while (Encoder_Button()) {} // Wait for button release
+
+            totalMicroAmps = 0;
+            totalTime = 0;
+        }
+
         if (ina226_ready()) {
             char str[16];
             char *s;
@@ -155,6 +97,7 @@ void power(void) {
             microWatts = ina226_getMicroWatts();
             totalMicroAmps += labs(microAmps);
             ++totalTime;
+
             screen_clear();
             screen_printchar(PROGRESS[totalTime & 0x03], SCREEN_WIDTH - FONT_WIDTH, 0, 1);
 //            snprintf(str, sizeof(str), "%u.%03u V", milliVolts / 1000, milliVolts % 1000);
@@ -172,6 +115,7 @@ void power(void) {
             normalizeU32(str, (uint32_t)((totalMicroAmps * 3600000000ULL / 1055232) / totalTime), "A/h");
             screen_printstr_x2(str, 0, 48, 1);
             ssd1306_flush(true);
+
 #ifdef USE_UART
             itoa(microAmps, str, 10);
             uartPrint(str);
