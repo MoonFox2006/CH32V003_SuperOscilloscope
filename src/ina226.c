@@ -16,6 +16,7 @@
 #define INA226_MANID_REG    0xFE
 #define INA226_DIEID_REG    0xFF
 
+/*
 #define MAXMILLIAMPS        500U // 0.5 A
 #define SHUNTMILLIOHMS      100U // R100
 #ifdef PRECISSION
@@ -23,8 +24,31 @@
 #else
 #define CURRENT_LSB         (1000UL * MAXMILLIAMPS / 32768U)
 #endif
+*/
 
 //#define CORR_FACTOR         980U // 0.98
+
+uint16_t ina226_maxMilliAmps(uint16_t shuntMilliOhms) {
+    uint16_t result;
+
+    result = 81920UL / shuntMilliOhms;
+    if (result >= 1000)
+        result = (result / 1000) * 1000;
+    else if (result >= 100)
+        result = (result / 100) * 100;
+    else // ???
+        result = (result / 10) * 10;
+    return result;
+}
+
+#ifdef PRECISSION
+static uint32_t ina226_currentLSB(uint16_t shuntMilliOhms) {
+    return 1000000ULL * ina226_maxMilliAmps(shuntMilliOhms) / 32768U;
+#else
+static uint16_t ina226_currentLSB(uint16_t shuntMilliOhms) {
+    return 1000UL * ina226_maxMilliAmps(shuntMilliOhms) / 32768U;
+#endif
+}
 
 static int16_t ina226_read16(uint8_t regAddr) {
     int16_t result = -1;
@@ -58,22 +82,26 @@ bool ina226_ready() {
     return (mask != -1) && ((mask & 0x08) != 0);
 }
 
-bool ina226_begin() {
-    return (ina226_read16(INA226_MANID_REG) == 0x5449) &&
-        ina226_write16(INA226_CONF_REG, 0x8000) && // Reset INA226
+bool ina226_setup(uint16_t shuntMilliOhms) {
 #ifdef PRECISSION
 #ifdef CORR_FACTOR
-        ina226_write16(INA226_CALIB_REG, 5120000000ULL * CORR_FACTOR / ((uint64_t)CURRENT_LSB * SHUNTMILLIOHMS * 1000)) &&
+    return ina226_write16(INA226_CALIB_REG, 5120000000ULL * CORR_FACTOR / ((uint64_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms * 1000));
 #else
-        ina226_write16(INA226_CALIB_REG, 5120000000ULL / ((uint64_t)CURRENT_LSB * SHUNTMILLIOHMS)) &&
+    return ina226_write16(INA226_CALIB_REG, 5120000000ULL / ((uint64_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms));
 #endif
 #else
 #ifdef CORR_FACTOR
-        ina226_write16(INA226_CALIB_REG, 5120000UL * CORR_FACTOR / ((uint32_t)CURRENT_LSB * SHUNTMILLIOHMS * 1000)) &&
+    return ina226_write16(INA226_CALIB_REG, 5120000UL * CORR_FACTOR / ((uint32_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms * 1000));
 #else
-        ina226_write16(INA226_CALIB_REG, 5120000UL / ((uint32_t)CURRENT_LSB * SHUNTMILLIOHMS)) &&
+    return ina226_write16(INA226_CALIB_REG, 5120000UL / ((uint32_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms));
 #endif
 #endif
+}
+
+bool ina226_begin(uint16_t shuntMilliOhms) {
+    return (ina226_read16(INA226_MANID_REG) == 0x5449) &&
+        ina226_write16(INA226_CONF_REG, 0x8000) && // Reset INA226
+        ina226_setup(shuntMilliOhms) &&
         ina226_write16(INA226_MASK_REG, 0x0400); // CNVR
 }
 
@@ -85,18 +113,18 @@ uint16_t ina226_getMilliVolts() {
     return (uint32_t)ina226_read16(INA226_BUSV_REG) * 125 / 100;
 }
 
-int32_t ina226_getMicroAmps() {
+int32_t ina226_getMicroAmps(uint16_t shuntMilliOhms) {
 #ifdef PRECISSION
-    return (int64_t)ina226_read16(INA226_CURRENT_REG) * CURRENT_LSB / 1000;
+    return (int64_t)ina226_read16(INA226_CURRENT_REG) * ina226_currentLSB(shuntMilliOhms) / 1000;
 #else
-    return (int32_t)ina226_read16(INA226_CURRENT_REG) * CURRENT_LSB;
+    return (int32_t)ina226_read16(INA226_CURRENT_REG) * ina226_currentLSB(shuntMilliOhms);
 #endif
 }
 
-uint32_t ina226_getMicroWatts() {
+uint32_t ina226_getMicroWatts(uint16_t shuntMilliOhms) {
 #ifdef PRECISSION
-    return (uint64_t)ina226_read16(INA226_POWER_REG) * CURRENT_LSB / 40;
+    return (uint64_t)ina226_read16(INA226_POWER_REG) * ina226_currentLSB(shuntMilliOhms) / 40;
 #else
-    return (uint32_t)ina226_read16(INA226_POWER_REG) * CURRENT_LSB * 25;
+    return (uint32_t)ina226_read16(INA226_POWER_REG) * ina226_currentLSB(shuntMilliOhms) * 25;
 #endif
 }

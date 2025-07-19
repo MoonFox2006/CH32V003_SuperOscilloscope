@@ -13,6 +13,12 @@
 #include "uart.h"
 #endif
 
+#define DEF_SHUNT   2 // R100
+
+static const uint16_t SHUNTS[] = {
+    10, 50, 100, 150, 200
+};
+
 static void normalizeU32(char *str, uint32_t value, const char *suffix) {
     char *s;
     bool milli;
@@ -54,7 +60,9 @@ static void normalizeI32(char *str, int32_t value, const char *suffix) {
 }
 
 void power(void) {
-    if ((! ina226_begin()) || (! ina226_measure(true, AVG64, US8244, US8244))) {
+    uint8_t shunt = DEF_SHUNT;
+
+    if ((! ina226_begin(SHUNTS[shunt])) || (! ina226_measure(true, AVG64, US8244, US8244))) {
         screen_clear();
         screen_printstr_x2("INA226", 0, 16, 1);
         screen_printstr_x2("not ready!", 0, 32, 1);
@@ -83,6 +91,25 @@ void power(void) {
 
             totalMicroAmps = 0;
             totalTime = 0;
+        } else {
+            int8_t e = Encoder_Read();
+
+            if (e != 0) {
+                if (e < 0) {
+                    if (shunt > 0)
+                        --shunt;
+                    else
+                        shunt = ARRAY_SIZE(SHUNTS) - 1;
+                } else { // e > 0
+                    if (shunt < ARRAY_SIZE(SHUNTS) - 1)
+                        ++shunt;
+                    else
+                        shunt = 0;
+                }
+                ina226_setup(SHUNTS[shunt]);
+                totalMicroAmps = 0;
+                totalTime = 0;
+            }
         }
 
         if (ina226_ready()) {
@@ -93,13 +120,20 @@ void power(void) {
             uint16_t milliVolts;
 
             milliVolts = ina226_getMilliVolts();
-            microAmps = ina226_getMicroAmps();
-            microWatts = ina226_getMicroWatts();
+            microAmps = ina226_getMicroAmps(SHUNTS[shunt]);
+            microWatts = ina226_getMicroWatts(SHUNTS[shunt]);
             totalMicroAmps += labs(microAmps);
             ++totalTime;
 
             screen_clear();
-            screen_printchar(PROGRESS[totalTime & 0x03], SCREEN_WIDTH - FONT_WIDTH, 0, 1);
+            s = str;
+            *s++ = 'R';
+            s = u16str(s, SHUNTS[shunt], 100);
+            *s++ = ' ';
+            *s++ = PROGRESS[totalTime & 0x03];
+            *s = '\0';
+//            screen_printchar(PROGRESS[totalTime & 0x03], SCREEN_WIDTH - FONT_WIDTH, 0, 1);
+            screen_printstr(str, SCREEN_WIDTH - font_strwidth(str, false), 0, 1);
 //            snprintf(str, sizeof(str), "%u.%03u V", milliVolts / 1000, milliVolts % 1000);
             s = u16str(str, milliVolts / 1000, 1);
             *s++ = '.';
