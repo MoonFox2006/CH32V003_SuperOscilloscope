@@ -410,11 +410,12 @@ static void find_range(uint16_t *min_value, uint16_t *max_value, uint8_t start, 
     }
 }
 
-static void draw_screen(bool plot, bool wait) {
+static bool draw_screen(bool plot, bool wait) {
     char str[22];
     char *s;
     uint16_t adc_min, adc_max;
     uint16_t trig_value;
+    bool result = false;
     uint8_t trig_start = 0;
 
     screen_clear();
@@ -439,16 +440,20 @@ static void draw_screen(bool plot, bool wait) {
     }
 
     if (vars.oscilloscope.trig != TRIG_FREE) {
-        find_range(&adc_min, &adc_max, ADC_TRIG_SIZE, ADC_TRIG_SIZE);
+        find_range(&adc_min, &adc_max, ADC_TRIG_SIZE, ADC_DATA_SIZE);
         trig_value = (adc_max - adc_min + 1) >> 1; // /2
         trig_start = ADC_TRIG_SIZE;
         while (trig_start < ADC_DATA_SIZE) {
             if ((vars.oscilloscope.trig == TRIG_RISING) || (vars.oscilloscope.trig == TRIG_RISING_STOP)) {
-                if ((vars.oscilloscope.adc_data[trig_start] < trig_value) && (vars.oscilloscope.adc_data[trig_start + 1] >= trig_value))
+                if ((vars.oscilloscope.adc_data[trig_start] < trig_value) && (vars.oscilloscope.adc_data[trig_start + 1] >= trig_value)) {
+                    result = true;
                     break;
+                }
             } else { // (vars.oscilloscope.trig == TRIG_FALLING) || (vars.oscilloscope.trig == TRIG_FALLING_STOP)
-                if ((vars.oscilloscope.adc_data[trig_start] > trig_value) && (vars.oscilloscope.adc_data[trig_start + 1] <= trig_value))
+                if ((vars.oscilloscope.adc_data[trig_start] > trig_value) && (vars.oscilloscope.adc_data[trig_start + 1] <= trig_value)) {
+                    result = true;
                     break;
+                }
             }
             ++trig_start;
         }
@@ -492,6 +497,7 @@ static void draw_screen(bool plot, bool wait) {
     *s = '\0';
     screen_printstr(str, 0, 0, 1);
     ssd1306_flush(wait);
+    return result;
 }
 
 void oscilloscope(void) {
@@ -567,8 +573,7 @@ void oscilloscope(void) {
         }
 
         if (ready && (! (vars.oscilloscope._adc_flags & ADC_FLAG_BUSY))) {
-            draw_screen(false, PERIODS[period] <= 100);
-            ready = (vars.oscilloscope.trig != TRIG_RISING_STOP) && (vars.oscilloscope.trig != TRIG_FALLING_STOP);
+            ready = (! draw_screen(false, PERIODS[period] <= 100)) || ((vars.oscilloscope.trig != TRIG_RISING_STOP) && (vars.oscilloscope.trig != TRIG_FALLING_STOP));
             if (ready)
                 Start_ADC(false);
         }
