@@ -6,7 +6,7 @@
 #include "utils.h"
 #include "encoder.h"
 
-static volatile int8_t _enc_dir = 0;
+static volatile uint8_t _enc = ENC_NONE;
 
 void Encoder_Init() {
 #ifdef USE_SPL
@@ -24,7 +24,8 @@ void Encoder_Init() {
 
     GPIO_EXTILineConfig(GPIO_PortSource, ENC_CLK);
     GPIO_EXTILineConfig(GPIO_PortSource, ENC_DT);
-    EXTI_InitStructure.EXTI_Line = (1 << ENC_CLK) | (1 << ENC_DT);
+    GPIO_EXTILineConfig(GPIO_PortSource, ENC_BTN);
+    EXTI_InitStructure.EXTI_Line = (1 << ENC_CLK) | (1 << ENC_DT) | (1 << ENC_BTN);
     EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
     EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising_Falling;
     EXTI_InitStructure.EXTI_LineCmd = ENABLE;
@@ -44,35 +45,25 @@ void Encoder_Init() {
 
     uint8_t GPIO_PortSource = (ENC_GPIO == GPIOA ? 0 : (ENC_GPIO == GPIOC ? 2 : 3));
 
-    UPDATE_REG32(&AFIO->EXTICR, ~((0x03 << (ENC_CLK * 2)) | (0x03 << (ENC_DT * 2))),
-        (GPIO_PortSource << (ENC_CLK * 2)) | (GPIO_PortSource << (ENC_DT * 2)));
+    UPDATE_REG32(&AFIO->EXTICR, ~((0x03 << (ENC_CLK * 2)) | (0x03 << (ENC_DT * 2)) | (0x03 << (ENC_BTN * 2))),
+        (GPIO_PortSource << (ENC_CLK * 2)) | (GPIO_PortSource << (ENC_DT * 2)) | (GPIO_PortSource << (ENC_BTN * 2)));
 
-    EXTI->RTENR |= (1 << ENC_CLK) | (1 << ENC_DT);
-    EXTI->FTENR |= (1 << ENC_CLK) | (1 << ENC_DT);
-    EXTI->INTENR |= (1 << ENC_CLK) | (1 << ENC_DT);
+    EXTI->RTENR |= (1 << ENC_CLK) | (1 << ENC_DT) | (1 << ENC_BTN);
+    EXTI->FTENR |= (1 << ENC_CLK) | (1 << ENC_DT) | (1 << ENC_BTN);
+    EXTI->INTENR |= (1 << ENC_CLK) | (1 << ENC_DT) | (1 << ENC_BTN);
 
     NVIC_SetPriority(EXTI7_0_IRQn, (0 << 7) | (1 << 6));
     NVIC_EnableIRQ(EXTI7_0_IRQn);
 #endif
-    _enc_dir = 0;
+    _enc = ENC_NONE;
 }
 
-int8_t Encoder_Read() {
-    int8_t result = _enc_dir;
+uint8_t Encoder_Read() {
+    uint8_t result = _enc;
 
-    _enc_dir = 0;
+    _enc = ENC_NONE;
     return result;
 }
-
-#ifdef USE_SPL
-bool Encoder_Button() {
-    return GPIO_ReadInputDataBit(ENC_GPIO, 1 << ENC_BTN) == Bit_RESET;
-}
-#else
-inline __attribute__((always_inline)) bool Encoder_Button() {
-    return (ENC_GPIO->INDR & (1 << ENC_BTN)) == 0;
-}
-#endif
 
 void __attribute__((interrupt("WCH-Interrupt-fast"))) EXTI7_0_IRQHandler(void) {
     const int8_t ENC_STATES[] = {
@@ -84,6 +75,7 @@ void __attribute__((interrupt("WCH-Interrupt-fast"))) EXTI7_0_IRQHandler(void) {
 
     static uint8_t ab = 0x03;
     static int8_t e = 0;
+    static bool btn = false;
 
 #ifdef USE_SPL
     uint8_t indr = GPIO_ReadInputData(ENC_GPIO);
@@ -91,25 +83,38 @@ void __attribute__((interrupt("WCH-Interrupt-fast"))) EXTI7_0_IRQHandler(void) {
     uint8_t indr = ENC_GPIO->INDR;
 #endif
 
-    ab <<= 2;
+    if (EXTI->INTFR & ((1 << ENC_CLK) | (1 << ENC_DT))) { // Encoder
+        ab <<= 2;
 #if ENC_DT == ENC_CLK + 1
-    ab |= ((indr >> ENC_CLK) & 0x03);
+        ab |= ((indr >> ENC_CLK) & 0x03);
 #else
-    ab |= (((indr >> ENC_DT) & 0x01) << 1);
-    ab |= ((indr >> ENC_CLK) & 0x01);
+        ab |= (((indr >> ENC_DT) & 0x01) << 1);
+        ab |= ((indr >> ENC_CLK) & 0x01);
 #endif
 
-    e += ENC_STATES[ab & 0x0F];
-    if (e < -3) {
-        _enc_dir = -1;
-        e = 0;
-    } else if (e > 3) {
-        _enc_dir = 1;
-        e = 0;
+        e += ENC_STATES[ab & 0x0F];
+        if (e < -3) {
+            _enc = indr & (1 << ENC_BTN) ? ENC_CCW : ENC_BTNCCW;
+            e = 0;
+        } else if (e > 3) {
+            _enc = indr & (1 << ENC_BTN) ? ENC_CW : ENC_BTNCW;
+            e = 0;
+        }
+        btn = false;
+    }
+    if (EXTI->INTFR & (1 << ENC_BTN)) { // Button
+        if (indr & (1 << ENC_BTN)) { // Release
+            if (btn) { // Button click
+                _enc = ENC_BTNCLICK;
+                btn = false;
+            }
+        } else { // Press
+            btn = true;
+        }
     }
 #ifdef USE_SPL
-    EXTI_ClearITPendingBit((1 << ENC_CLK) | (1 << ENC_DT));
+    EXTI_ClearITPendingBit((1 << ENC_CLK) | (1 << ENC_DT) | (1 << ENC_BTN));
 #else
-    EXTI->INTFR = (1 << ENC_CLK) | (1 << ENC_DT);
+    EXTI->INTFR = (1 << ENC_CLK) | (1 << ENC_DT) | (1 << ENC_BTN);
 #endif
 }

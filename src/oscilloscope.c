@@ -26,7 +26,7 @@
 
 #define DEF_PERIOD      3 // 10 us.
 
-enum { TRIG_FREE, TRIG_RISING, TRIG_FALLING };
+enum { TRIG_FREE, TRIG_RISING, TRIG_FALLING, TRIG_RISING_STOP, TRIG_FALLING_STOP };
 
 static const uint16_t PERIODS[] = {
     1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000
@@ -366,20 +366,24 @@ static void Start_ADC(bool wait) {
 }
 
 static void norm_time(uint32_t period) {
+    const char* const TRIGSTR[] = {
+        "~", "/", "\\", "!/", "!\\"
+    };
+
     char *s;
 
+    strcpy(vars.oscilloscope.timestr, TRIGSTR[vars.oscilloscope.trig]);
+    s = &vars.oscilloscope.timestr[strlen(vars.oscilloscope.timestr)];
+    *s++ = ' ';
     period *= (ADC_DATA_SIZE >> 2);
     if (period < 1000) {
-//        sprintf(timestr, "%uu", period);
-        s = u16str(vars.oscilloscope.timestr, period, 1);
+        s = u16str(s, period, 1);
         *s++ = 'u';
     } else {
         if ((period % 1000) == 0) {
-//            sprintf(timestr, "%um", period / 1000);
-            s = u16str(vars.oscilloscope.timestr, period / 1000, 1);
+            s = u16str(s, period / 1000, 1);
         } else {
-//            sprintf(timestr, "%u.%um", period / 1000, (period % 1000) / 100);
-            s = u16str(vars.oscilloscope.timestr, period / 1000, 1);
+            s = u16str(s, period / 1000, 1);
             *s++ = '.';
             s = u16str(s, (period % 1000) / 100, 1);
         }
@@ -389,7 +393,7 @@ static void norm_time(uint32_t period) {
 }
 
 static inline uint16_t trim(uint16_t data) {
-    return (data > 1023) ? 1023 : data & 0x3FF;
+    return (data > 1023) ? 1023 : data;
 }
 
 static void find_range(uint16_t *min_value, uint16_t *max_value, uint8_t start, uint8_t size) {
@@ -435,28 +439,30 @@ static void draw_screen(bool plot, bool wait) {
     }
 
     if (vars.oscilloscope.trig != TRIG_FREE) {
-        find_range(&adc_min, &adc_max, 0, ADC_TRIG_SIZE);
+        find_range(&adc_min, &adc_max, ADC_TRIG_SIZE, ADC_TRIG_SIZE);
         trig_value = (adc_max - adc_min + 1) >> 1; // /2
-        while (trig_start < ADC_TRIG_SIZE) {
-            if (vars.oscilloscope.trig == TRIG_RISING) {
+        trig_start = ADC_TRIG_SIZE;
+        while (trig_start < ADC_DATA_SIZE) {
+            if ((vars.oscilloscope.trig == TRIG_RISING) || (vars.oscilloscope.trig == TRIG_RISING_STOP)) {
                 if ((vars.oscilloscope.adc_data[trig_start] < trig_value) && (vars.oscilloscope.adc_data[trig_start + 1] >= trig_value))
                     break;
-            } else { // trig == TRIG_FALLING
+            } else { // (vars.oscilloscope.trig == TRIG_FALLING) || (vars.oscilloscope.trig == TRIG_FALLING_STOP)
                 if ((vars.oscilloscope.adc_data[trig_start] > trig_value) && (vars.oscilloscope.adc_data[trig_start + 1] <= trig_value))
                     break;
             }
             ++trig_start;
         }
+        trig_start -= ADC_TRIG_SIZE;
     }
     find_range(&adc_min, &adc_max, trig_start, ADC_DATA_SIZE);
-    if ((adc_max - adc_min) << vars.oscilloscope.scale >= 1023)
+    if (adc_max - adc_min >= 1023)
         trig_value = 0;
     else
-        trig_value = (1023 - ((adc_max - adc_min) << vars.oscilloscope.scale)) >> 1;
+        trig_value = (1023 - (adc_max - adc_min)) >> 1;
     for (uint8_t i = 0; i < ADC_DATA_SIZE; ++i) {
         uint8_t index = i + trig_start;
 
-        vars.oscilloscope.adc_data[index] = SCREEN_HEIGHT - 1 - trim(((vars.oscilloscope.adc_data[index] - adc_min) << vars.oscilloscope.scale) + trig_value) * CHART_HEIGHT / 1023;
+        vars.oscilloscope.adc_data[index] = SCREEN_HEIGHT - 1 - trim(vars.oscilloscope.adc_data[index] - adc_min + trig_value) * CHART_HEIGHT / 1023;
         if (plot) {
             screen_pixel(i + CHART_LEFT, vars.oscilloscope.adc_data[index], 1);
         } else {
@@ -471,12 +477,7 @@ static void draw_screen(bool plot, bool wait) {
     adc_min = adc_min * vars.oscilloscope.vcc / 1023;
     adc_max = adc_max * vars.oscilloscope.vcc / 1023;
 #endif
-    str[0] = (vars.oscilloscope.trig == TRIG_RISING) ? '/' : (vars.oscilloscope.trig == TRIG_FALLING) ? '\\' : '~';
-    str[1] = ' ';
-    str[2] = 'x';
-    str[3] = '0' + (1 << vars.oscilloscope.scale);
-    str[4] = ' ';
-    strcpy(&str[5], vars.oscilloscope.timestr);
+    strcpy(str, vars.oscilloscope.timestr);
 //    sprintf(&str[strlen(str)], "s %u.%02u-%u.%02u", adc_min / 100, adc_min % 100, adc_max / 100, adc_max % 100);
     s = &str[strlen(str)];
     *s++ = 's';
@@ -494,21 +495,23 @@ static void draw_screen(bool plot, bool wait) {
 }
 
 void oscilloscope(void) {
-    vars.oscilloscope.period = DEF_PERIOD;
+    uint8_t period = DEF_PERIOD;
+    bool ready;
+
     vars.oscilloscope.trig = TRIG_RISING;
-    vars.oscilloscope.scale = 0;
 
     Init_PVD();
 
-    Init_ADC(PERIODS[vars.oscilloscope.period]);
+    Init_ADC(PERIODS[period]);
 
 #ifdef USE_SINUS
     Init_Sinus(1000);
 #endif
 
     Start_ADC(false);
+    ready = true;
 
-    norm_time(PERIODS[vars.oscilloscope.period]);
+    norm_time(PERIODS[period]);
 
 #ifdef USE_SPL
     if (PWR_GetFlagStatus(PWR_FLAG_PVDO)) // Below 4.4 V
@@ -520,44 +523,54 @@ void oscilloscope(void) {
         vars.oscilloscope.vcc = 500; // 5.0 V
 
     while (1) {
-        int8_t e;
+        uint8_t e;
 
         e = Encoder_Read();
-        if (e != 0) {
-            if (Encoder_Button()) { // Trigger mode or scale
-                if (e < 0) { // Trigger mode
-                    if (vars.oscilloscope.trig < TRIG_FALLING)
+        if (e != ENC_NONE) {
+            switch (e) {
+                case ENC_CCW: // Decrement period
+                    if (period > 0)
+                        --period;
+                    else
+                        period = ARRAY_SIZE(PERIODS) - 1;
+                    break;
+                case ENC_CW: // Increment period
+                    if (period < ARRAY_SIZE(PERIODS) - 1)
+                        ++period;
+                    else
+                        period = 0;
+                    break;
+                case ENC_BTNCCW: // Decrement trigger mode
+                    if (vars.oscilloscope.trig > TRIG_FREE)
+                        --vars.oscilloscope.trig;
+                    else
+                        vars.oscilloscope.trig = TRIG_FALLING_STOP;
+                    break;
+                case ENC_BTNCW: // Increment trigger mode
+                    if (vars.oscilloscope.trig < TRIG_FALLING_STOP)
                         ++vars.oscilloscope.trig;
                     else
                         vars.oscilloscope.trig = TRIG_FREE;
-                } else { // Scale
-                    if (vars.oscilloscope.scale < 2) // x4
-                        ++vars.oscilloscope.scale;
-                    else
-                        vars.oscilloscope.scale = 0;
-                }
-            } else { // Period
-                if (e < 0) {
-                    if (vars.oscilloscope.period > 0)
-                        --vars.oscilloscope.period;
-                    else
-                        vars.oscilloscope.period = ARRAY_SIZE(PERIODS) - 1;
-                } else {
-                    if (vars.oscilloscope.period < ARRAY_SIZE(PERIODS) - 1)
-                        ++vars.oscilloscope.period;
-                    else
-                        vars.oscilloscope.period = 0;
-                }
-                norm_time(PERIODS[vars.oscilloscope.period]);
+                    break;
             }
-
-            Reinit_ADC(PERIODS[vars.oscilloscope.period]);
-            Start_ADC(false);
+            if (e != ENC_BTNCLICK) { // Encoder
+                Reinit_ADC(PERIODS[period]);
+                Start_ADC(false);
+                ready = true;
+                norm_time(PERIODS[period]);
+            } else { // Button
+                if (! ready) {
+                    Start_ADC(false);
+                    ready = true;
+                }
+            }
         }
 
-        if (! (vars.oscilloscope._adc_flags & ADC_FLAG_BUSY)) {
-            draw_screen(false, PERIODS[vars.oscilloscope.period] <= 100);
-            Start_ADC(false);
+        if (ready && (! (vars.oscilloscope._adc_flags & ADC_FLAG_BUSY))) {
+            draw_screen(false, PERIODS[period] <= 100);
+            ready = (vars.oscilloscope.trig != TRIG_RISING_STOP) && (vars.oscilloscope.trig != TRIG_FALLING_STOP);
+            if (ready)
+                Start_ADC(false);
         }
     }
 }

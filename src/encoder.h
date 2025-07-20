@@ -13,6 +13,7 @@
 #define ENC_DT      7
 #define ENC_BTN     3
 
+enum { ENC_NONE, ENC_BTNCLICK, ENC_CCW, ENC_BTNCCW, ENC_CW, ENC_BTNCW };
+
 void Encoder_Init();
-int8_t Encoder_Read();
-bool Encoder_Button();
+uint8_t Encoder_Read();

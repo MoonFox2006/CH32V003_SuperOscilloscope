@@ -134,9 +134,7 @@ void voltage(void) {
         char str[16];
         uint16_t voltage;
 
-        if (Encoder_Button()) { // Clear totals
-            while (Encoder_Button()) {} // Wait for button release
-
+        if (Encoder_Read() == ENC_BTNCLICK) { // Clear totals
             totalVoltage = 0;
             totalTime = 0;
             minVoltage = 0xFFFF;

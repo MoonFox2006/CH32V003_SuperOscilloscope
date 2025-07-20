@@ -11,13 +11,11 @@
 typedef union {
     struct {
         uint16_t adc_data[ADC_DATA_SIZE + ADC_TRIG_SIZE];
-        char timestr[8];
+        char timestr[3 + 8];
         uint16_t vcc; // 500 or 330
         uint16_t vref; // ~1.2 V internal voltage reference
         volatile uint8_t _adc_flags;
-        uint8_t period;
         uint8_t trig;
-        uint8_t scale;
     } oscilloscope;
     struct {
         uint16_t snakeBody[SNAKE_MAX];

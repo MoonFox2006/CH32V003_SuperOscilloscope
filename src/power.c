@@ -86,21 +86,19 @@ void power(void) {
 #endif
 
     while (1) {
-        if (Encoder_Button()) { // Clear totals
-            while (Encoder_Button()) {} // Wait for button release
+        uint8_t e = Encoder_Read();
 
-            totalMicroAmps = 0;
-            totalTime = 0;
-        } else {
-            int8_t e = Encoder_Read();
-
-            if (e != 0) {
-                if (e < 0) {
+        if (e != ENC_NONE) {
+            if (e == ENC_BTNCLICK) { // Clear totals
+                totalMicroAmps = 0;
+                totalTime = 0;
+            } else if ((e == ENC_CCW) || (e == ENC_CW)) {
+                if (e == ENC_CCW) {
                     if (shunt > 0)
                         --shunt;
                     else
                         shunt = ARRAY_SIZE(SHUNTS) - 1;
-                } else { // e > 0
+                } else { // e == ENC_CW
                     if (shunt < ARRAY_SIZE(SHUNTS) - 1)
                         ++shunt;
                     else

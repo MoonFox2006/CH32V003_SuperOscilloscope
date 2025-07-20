@@ -28,18 +28,17 @@ static void gui_draw(const char *title, const char* const items[], uint8_t count
 uint8_t gui_choose(const char *title, const char* const items[], uint8_t count) {
     uint8_t result = 0;
     uint8_t top = 0;
+    uint8_t e;
 
     gui_draw(title, items, count, top, result);
-    while (! Encoder_Button()) {
-        int8_t e = Encoder_Read();
-
-        if (e != 0) {
-            if (e < 0) {
+    while ((e = Encoder_Read()) != ENC_BTNCLICK) {
+        if ((e == ENC_CCW) || (e == ENC_CW)) {
+            if (e == ENC_CCW) {
                 if (result > 0)
                     --result;
                 else
                     result = count - 1;
-            } else { // e > 0
+            } else { // e == ENC_CW
                 if (result < count - 1)
                     ++result;
                 else
@@ -52,7 +51,5 @@ uint8_t gui_choose(const char *title, const char* const items[], uint8_t count) 
             gui_draw(title, items, count, top, result);
         }
     }
-    while (Encoder_Button()) {} // Wait for button release
-    Encoder_Read(); // Skip random rotation
     return result;
 }

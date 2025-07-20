@@ -182,6 +182,8 @@ static void startScreen() {
 }
 
 void snake(void) {
+    bool pause = false;
+
     vars.snake.eaten = 0;
     vars.snake.updating = false;
 
@@ -194,57 +196,41 @@ void snake(void) {
     SysTick->CTLR = (1 << 3) | (1 << 0); // STRE | STE
 
     while (1) {
+        uint8_t e;
+
         while (! (SysTick->SR & 0x01)) {}
         SysTick->SR = 0;
 
-        if (Encoder_Button()) { // Start
-            while (Encoder_Button()) {} // Wait for button release
-            Encoder_Read(); // Skip random rotation
-            if (vars.snake.direction == DIR_STOP) {
-                vars.snake.direction = DIR_RIGHT;
-                screen_clear();
-                drawSnake();
-                drawFood();
-            }
-        } else if (vars.snake.direction != DIR_STOP) {
-            int8_t e;
-
-            e = Encoder_Read();
-            if (e != 0) {
-                if (e < 0) { // Counterclockwise
-/*
-                    if (direction == DIR_UP)
-                        direction = DIR_LEFT;
-                    else if (direction == DIR_RIGHT)
-                        direction = DIR_UP;
-                    else if (direction == DIR_DOWN)
-                        direction = DIR_RIGHT;
-                    else // if (direction == DIR_LEFT)
-                        direction = DIR_DOWN;
-*/
-                    if (vars.snake.direction == DIR_UP)
-                        vars.snake.direction = DIR_LEFT;
-                    else
-                        --vars.snake.direction;
-                } else { // Clockwise
-/*
-                    if (direction == DIR_UP)
-                        direction = DIR_RIGHT;
-                    else if (direction == DIR_RIGHT)
-                        direction = DIR_DOWN;
-                    else if (direction == DIR_DOWN)
-                        direction = DIR_LEFT;
-                    else // if (direction == DIR_LEFT)
-                        direction = DIR_UP;
-*/
-                    if (vars.snake.direction == DIR_LEFT)
-                        vars.snake.direction = DIR_UP;
-                    else
-                        ++vars.snake.direction;
+        e = Encoder_Read();
+        if (e != ENC_NONE) {
+            if (vars.snake.direction != DIR_STOP) {
+                if (e == ENC_BTNCLICK) {
+                    pause = ! pause;
+                } else if (! pause) {
+                    if (e == ENC_CCW) { // Counterclockwise
+                        if (vars.snake.direction == DIR_UP)
+                            vars.snake.direction = DIR_LEFT;
+                        else
+                            --vars.snake.direction;
+                    } else if (e == ENC_CW) { // Clockwise
+                        if (vars.snake.direction == DIR_LEFT)
+                            vars.snake.direction = DIR_UP;
+                        else
+                            ++vars.snake.direction;
+                    }
+                }
+            } else {
+                if (e == ENC_BTNCLICK) { // Start
+                    vars.snake.direction = DIR_RIGHT;
+                    screen_clear();
+                    drawSnake();
+                    drawFood();
+                    pause = false;
                 }
             }
         }
-        if (vars.snake.direction != DIR_STOP) {
+
+        if ((vars.snake.direction != DIR_STOP) && (! pause)) {
             int16_t x, y;
 
             y = (vars.snake.snakeTail + vars.snake.snakeLen - 1) & (SNAKE_MAX - 1); // % SNAKE_MAX
