@@ -445,12 +445,14 @@ static bool draw_screen(bool plot, bool wait) {
         trig_start = ADC_TRIG_SIZE;
         while (trig_start < ADC_DATA_SIZE) {
             if ((vars.oscilloscope.trig == TRIG_RISING) || (vars.oscilloscope.trig == TRIG_RISING_STOP)) {
-                if ((vars.oscilloscope.adc_data[trig_start] < trig_value) && (vars.oscilloscope.adc_data[trig_start + 1] >= trig_value)) {
+                if ((vars.oscilloscope.adc_data[trig_start] < trig_value) && (vars.oscilloscope.adc_data[trig_start + 1] >= trig_value) &&
+                    (vars.oscilloscope.adc_data[trig_start - 1] <= vars.oscilloscope.adc_data[trig_start]) && (vars.oscilloscope.adc_data[trig_start + 2] >= vars.oscilloscope.adc_data[trig_start + 1])) {
                     result = true;
                     break;
                 }
             } else { // (vars.oscilloscope.trig == TRIG_FALLING) || (vars.oscilloscope.trig == TRIG_FALLING_STOP)
-                if ((vars.oscilloscope.adc_data[trig_start] > trig_value) && (vars.oscilloscope.adc_data[trig_start + 1] <= trig_value)) {
+                if ((vars.oscilloscope.adc_data[trig_start] > trig_value) && (vars.oscilloscope.adc_data[trig_start + 1] <= trig_value) &&
+                    (vars.oscilloscope.adc_data[trig_start - 1] >= vars.oscilloscope.adc_data[trig_start]) && (vars.oscilloscope.adc_data[trig_start + 2] <= vars.oscilloscope.adc_data[trig_start + 1])) {
                     result = true;
                     break;
                 }
