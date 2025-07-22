@@ -16,18 +16,6 @@
 #define INA226_MANID_REG    0xFE
 #define INA226_DIEID_REG    0xFF
 
-/*
-#define MAXMILLIAMPS        500U // 0.5 A
-#define SHUNTMILLIOHMS      100U // R100
-#ifdef PRECISSION
-#define CURRENT_LSB         (1000000UL * MAXMILLIAMPS / 32768U)
-#else
-#define CURRENT_LSB         (1000UL * MAXMILLIAMPS / 32768U)
-#endif
-*/
-
-//#define CORR_FACTOR         980U // 0.98
-
 uint16_t ina226_maxMilliAmps(uint16_t shuntMilliOhms) {
     uint16_t result;
 
@@ -82,26 +70,24 @@ bool ina226_ready() {
     return (mask != -1) && ((mask & 0x08) != 0);
 }
 
-bool ina226_setup(uint16_t shuntMilliOhms) {
+bool ina226_setup(uint16_t shuntMilliOhms, uint16_t corrFactor) {
 #ifdef PRECISSION
-#ifdef CORR_FACTOR
-    return ina226_write16(INA226_CALIB_REG, 5120000000ULL * CORR_FACTOR / ((uint64_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms * 1000));
+    if (corrFactor != 1000)
+        return ina226_write16(INA226_CALIB_REG, 5120000000ULL * corrFactor / ((uint64_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms * 1000));
+    else
+        return ina226_write16(INA226_CALIB_REG, 5120000000ULL / ((uint64_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms));
 #else
-    return ina226_write16(INA226_CALIB_REG, 5120000000ULL / ((uint64_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms));
-#endif
-#else
-#ifdef CORR_FACTOR
-    return ina226_write16(INA226_CALIB_REG, 5120000UL * CORR_FACTOR / ((uint32_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms * 1000));
-#else
-    return ina226_write16(INA226_CALIB_REG, 5120000UL / ((uint32_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms));
-#endif
+    if (corrFactor != 1000)
+        return ina226_write16(INA226_CALIB_REG, 5120000UL * corrFactor / ((uint32_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms * 1000));
+    else
+        return ina226_write16(INA226_CALIB_REG, 5120000UL / ((uint32_t)ina226_currentLSB(shuntMilliOhms) * shuntMilliOhms));
 #endif
 }
 
-bool ina226_begin(uint16_t shuntMilliOhms) {
+bool ina226_begin(uint16_t shuntMilliOhms, uint16_t corrFactor) {
     return (ina226_read16(INA226_MANID_REG) == 0x5449) &&
         ina226_write16(INA226_CONF_REG, 0x8000) && // Reset INA226
-        ina226_setup(shuntMilliOhms) &&
+        ina226_setup(shuntMilliOhms, corrFactor) &&
         ina226_write16(INA226_MASK_REG, 0x0400); // CNVR
 }
 

@@ -25,6 +25,10 @@ typedef union {
         uint8_t foodX, foodY;
         bool updating;
     } snake;
+    struct {
+        uint16_t corrFactor;
+        uint8_t shunt;
+    } power;
 } vars_t;
 
 extern vars_t vars;
